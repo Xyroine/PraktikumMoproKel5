@@ -1,122 +1,471 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+void main() => runApp(const MyApp());
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      title: 'Auth Demo',
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
+      debugShowCheckedModeBanner: false,
+      home: const AuthWrapper(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+/// Simple in-memory auth simulator
+class AuthService {
+  AuthService._private();
+  static final AuthService instance = AuthService._private();
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
+  final Map<String, String> _users = {}; // email -> password
+  String? currentUser;
 
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
+  Future<void> register(String email, String password) async {
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (_users.containsKey(email)) {
+      throw Exception('Email sudah terdaftar');
+    }
+    _users[email] = password;
+    currentUser = email;
+  }
 
-  final String title;
+  Future<void> login(String email, String password) async {
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!_users.containsKey(email) || _users[email] != password) {
+      throw Exception('Email atau password salah');
+    }
+    currentUser = email;
+  }
 
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  Future<void> logout() async {
+    await Future.delayed(const Duration(milliseconds: 300));
+    currentUser = null;
+  }
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+/// Shows login if not logged in, otherwise HomePage
+class AuthWrapper extends StatefulWidget {
+  const AuthWrapper({super.key});
+  @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+class _AuthWrapperState extends State<AuthWrapper> {
+  bool loading = false;
+
+  void refresh() => setState(() {});
+
+  @override
+  Widget build(BuildContext context) {
+    if (AuthService.instance.currentUser != null) {
+      return HomePage(
+        onLogout: () async {
+          setState(() => loading = true);
+          await AuthService.instance.logout();
+          setState(() => loading = false);
+        },
+      );
+    }
+    return loading
+        ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+        : const LoginPage();
+  }
+}
+
+/// LOGIN PAGE
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
+  @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  bool _obscure = true;
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passCtrl.dispose();
+    super.dispose();
+  }
+
+  String? _validateEmail(String? v) {
+    if (v == null || v.isEmpty) return 'Email wajib diisi';
+    final regex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!regex.hasMatch(v)) return 'Format email tidak valid';
+    return null;
+  }
+
+  String? _validatePass(String? v) {
+    if (v == null || v.isEmpty) return 'Password wajib diisi';
+    if (v.length < 6) return 'Minimal 6 karakter';
+    return null;
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _loading = true);
+    try {
+      await AuthService.instance.login(_emailCtrl.text.trim(), _passCtrl.text);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Login berhasil')));
+      setState(() {}); // rebuild wrapper will detect user
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => HomePage(
+            onLogout: () async {
+              setState(() => _loading = true);
+              await AuthService.instance.logout();
+              setState(() => _loading = false);
+            },
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    final mq = MediaQuery.of(context).size;
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: mq.width > 600 ? 480 : mq.width,
+              ),
+              child: Card(
+                elevation: 6,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const FlutterLogo(size: 72),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Selamat datang',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Silakan masuk atau daftar akun baru',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 18),
+                      Form(
+                        key: _formKey,
+                        child: Column(
+                          children: [
+                            TextFormField(
+                              controller: _emailCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Email',
+                              ),
+                              keyboardType: TextInputType.emailAddress,
+                              validator: _validateEmail,
+                            ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: _passCtrl,
+                              decoration: InputDecoration(
+                                labelText: 'Password',
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscure
+                                        ? Icons.visibility
+                                        : Icons.visibility_off,
+                                  ),
+                                  onPressed: () =>
+                                      setState(() => _obscure = !_obscure),
+                                ),
+                              ),
+                              obscureText: _obscure,
+                              validator: _validatePass,
+                            ),
+                            const SizedBox(height: 18),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.tonalIcon(
+                                icon: _loading
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.login),
+                                label: const Text('Masuk'),
+                                onPressed: _loading ? null : _submit,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('Belum punya akun?'),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const RegisterPage(),
+                                ),
+                              );
+                            },
+                            child: const Text('Daftar'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-          ],
+          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+    );
+  }
+}
+
+/// REGISTER PAGE
+class RegisterPage extends StatefulWidget {
+  const RegisterPage({super.key});
+  @override
+  State<RegisterPage> createState() => _RegisterPageState();
+}
+
+class _RegisterPageState extends State<RegisterPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  final _pass2Ctrl = TextEditingController();
+  bool _obscure = true;
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _passCtrl.dispose();
+    _pass2Ctrl.dispose();
+    super.dispose();
+  }
+
+  String? _validateEmail(String? v) {
+    if (v == null || v.isEmpty) return 'Email wajib diisi';
+    final regex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!regex.hasMatch(v)) return 'Format email tidak valid';
+    return null;
+  }
+
+  String? _validatePass(String? v) {
+    if (v == null || v.isEmpty) return 'Password wajib diisi';
+    if (v.length < 6) return 'Minimal 6 karakter';
+    return null;
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_passCtrl.text != _pass2Ctrl.text) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Password tidak cocok')));
+      return;
+    }
+    setState(() => _loading = true);
+    try {
+      await AuthService.instance.register(
+        _emailCtrl.text.trim(),
+        _passCtrl.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Registrasi berhasil')));
+      Navigator.of(context).pop(); // kembali ke login
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Daftar Akun')),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(18),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextFormField(
+                          controller: _emailCtrl,
+                          decoration: const InputDecoration(labelText: 'Email'),
+                          keyboardType: TextInputType.emailAddress,
+                          validator: _validateEmail,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _passCtrl,
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscure
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                              ),
+                              onPressed: () =>
+                                  setState(() => _obscure = !_obscure),
+                            ),
+                          ),
+                          obscureText: _obscure,
+                          validator: _validatePass,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _pass2Ctrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Konfirmasi password',
+                          ),
+                          obscureText: _obscure,
+                          validator: _validatePass,
+                        ),
+                        const SizedBox(height: 18),
+                        SizedBox(
+                          width: double.infinity,
+                          child: FilledButton(
+                            onPressed: _loading ? null : _submit,
+                            child: _loading
+                                ? const SizedBox(
+                                    height: 16,
+                                    width: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('Buat akun'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// HOME (after login)
+class HomePage extends StatelessWidget {
+  final Future<void> Function() onLogout;
+  const HomePage({required this.onLogout, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final user = AuthService.instance.currentUser ?? 'Unknown';
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Beranda'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await onLogout();
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+                (route) => false,
+              );
+            },
+            tooltip: 'Keluar',
+          ),
+        ],
+      ),
+      body: Center(
+        child: Card(
+          margin: const EdgeInsets.all(24),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Halo, $user',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text('Contoh aplikasi dengan login & register (mock).'),
+                const SizedBox(height: 12),
+                FilledButton.tonal(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Fitur tambahan bisa kamu tambahkan di sini',
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('Tambah fitur'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
